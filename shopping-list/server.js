@@ -68,7 +68,7 @@ app.delete('/items/:id', function(req, res){
 });
 
 app.put('/items/:id', jsonParser, function(req, res) {
-	if(!req.body)
+	if(!req.body || req.params.id < 0 || req.params.id > Storage.id)
 		return res.sendStatus(400);
 
 	var item = storage.edit(req.body.name, req.body.id);
