@@ -4,7 +4,7 @@ var router = express.Router();
 
 router.get('/items', function(req, res) {
     Item.list(function(items) {
-        res.json(items);
+        res.status(200).json(items);
     }, function(err) {
         res.status(400).json(err);
     });
