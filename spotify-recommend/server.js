@@ -31,6 +31,21 @@ var getRelatedFromApi = function(endpoint) {
     return emitter;
 };
 
+var getTopTracksFromApi = function(endpoint, args){
+    var emitter = new events.EventEmitter();
+    unirest.get('https://api.spotify.com/v1/artists/' + endpoint + '/top-tracks')
+           .qs(args)
+           .end(function(response){
+             if(response.ok) {
+               emitter.emit('end', response.body);
+             }
+             else {
+               emitter.emit('error', response.code);
+             }
+           });
+    return emitter;
+}
+
 var app = express();
 app.use(express.static('public'));
 
@@ -47,8 +62,26 @@ app.get('/search/:name', function(req, res) {
 
         var relatedReq = getRelatedFromApi(artistID)
             .on('end', function(relatedItems){
-                artist.related = relatedItems.artists;
-                res.json(artist);
+                var completed = 0;
+
+                var checkCompleted = function() {
+                   if(completed === relatedItems.artists.length) {
+                     artist.related = relatedItems.artists;
+                     res.json(artist).sendStatus(200);
+                   }
+                }
+
+                relatedItems.artists.forEach(function(relatedArtist) {
+                  getTopTracksFromApi(relatedArtist.id, {
+                    country: 'SG'
+                  }).on('end', function(topTracks) {
+                    relatedArtist.tracks = topTracks.tracks;
+                    completed += 1;
+                    checkCompleted();
+                  }).on('error', function(){
+                    console.log('Could not find top tracks for ' + relatedArtist.name);
+                  })
+                });
             })
             .on('error', function(code){
                 res.sendStatus(404);
