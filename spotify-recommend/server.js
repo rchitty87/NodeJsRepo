@@ -2,48 +2,42 @@ var unirest = require('unirest');
 var express = require('express');
 var events = require('events');
 
-var getFromApi = function(endpoint, args) {
-    var emitter = new events.EventEmitter();
+var getFromApi = function(endpoint, args, callback) {
     unirest.get('https://api.spotify.com/v1/' + endpoint)
            .qs(args)
            .end(function(response) {
                 if (response.ok) {
-                    emitter.emit('end', response.body);
+                  return callback(null, response.body);
                 }
                 else {
-                    emitter.emit('error', response.code);
+                  return callback(response.code, null);
                 }
             });
-    return emitter;
 };
 
-var getRelatedFromApi = function(endpoint) {
-    var emitter = new events.EventEmitter();
+var getRelatedFromApi = function(endpoint, callback) {
     unirest.get('https://api.spotify.com/v1/artists/' + endpoint + '/related-artists')
            .end(function(response){
               if(response.ok) {
-                emitter.emit('end', response.body);
+                return callback(null, response.body);
               }
               else{
-                emitter.emit('error', response.code);
+                return callback(response.code, null);
               }
            });
-    return emitter;
 };
 
-var getTopTracksFromApi = function(endpoint, args){
-    var emitter = new events.EventEmitter();
+var getTopTracksFromApi = function(endpoint, args, callback) {
     unirest.get('https://api.spotify.com/v1/artists/' + endpoint + '/top-tracks')
            .qs(args)
            .end(function(response){
              if(response.ok) {
-               emitter.emit('end', response.body);
+               return callback(null, response.body);
              }
              else {
-               emitter.emit('error', response.code);
+               return callback(response.code, null);
              }
            });
-    return emitter;
 }
 
 var app = express();
@@ -51,45 +45,42 @@ app.use(express.static('public'));
 
 app.get('/search/:name', function(req, res) {
     var searchReq = getFromApi('search', {
-        q: req.params.name,
-        limit: 1,
-        type: 'artist'
-    });
+      q: req.params.name,
+      limit: 1,
+      type: 'artist'
+    }, function(error, item) {
+        if(error)
+          return res.sendStatus(error);
 
-    searchReq.on('end', function(item) {
         var artist = item.artists.items[0];
         var artistID = artist.id;
 
-        var relatedReq = getRelatedFromApi(artistID)
-            .on('end', function(relatedItems){
-                var completed = 0;
+        var relatedReq = getRelatedFromApi(artistID, function(error, relatedItems) {
+          if(error)
+            return res.sendStatus(404);
 
-                var checkCompleted = function() {
-                   if(completed === relatedItems.artists.length) {
-                     artist.related = relatedItems.artists;
-                     res.json(artist).sendStatus(200);
-                   }
-                }
+          var completed = 0;
 
-                relatedItems.artists.forEach(function(relatedArtist) {
-                  getTopTracksFromApi(relatedArtist.id, {
-                    country: 'SG'
-                  }).on('end', function(topTracks) {
-                    relatedArtist.tracks = topTracks.tracks;
-                    completed += 1;
-                    checkCompleted();
-                  }).on('error', function(){
-                    console.log('Could not find top tracks for ' + relatedArtist.name);
-                  })
-                });
-            })
-            .on('error', function(code){
-                res.sendStatus(404);
+          relatedItems.artists.forEach(function(relatedArtist) {
+            getTopTracksFromApi(relatedArtist.id, {
+              country: 'SG'
+            }, function(error, topTracks) {
+              completed += 1;
+
+              if(error){
+                console.log('Could not find top tracks for ' + relatedArtist.name);
+              }
+              else {
+                relatedArtist.tracks = topTracks.tracks;
+              }
+
+              if(completed == relatedItems.artists.length) {
+                artist.related = relatedItems.artists;
+                return res.json(artist);
+              }
             });
-    });
-
-    searchReq.on('error', function(code) {
-        res.sendStatus(code);
+          });
+      });
     });
 });
 
